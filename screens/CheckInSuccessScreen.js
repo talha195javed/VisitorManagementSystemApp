@@ -10,7 +10,7 @@ const CheckInSuccessScreen = ({ route }) => {
     useEffect(() => {
         showMessage({
             message: "Welcome!",
-            description: "Your check-in is successful.",
+            description: "Your check-in is successful. Remember your Visitor ID for checkout.",
             type: "success",
             duration: 2000,
         });
@@ -25,7 +25,14 @@ const CheckInSuccessScreen = ({ route }) => {
             <View style={styles.card}>
                 <Image source={{ uri: 'https://cdn-icons-png.flaticon.com/512/190/190411.png' }} style={styles.image} />
                 <Text style={styles.title}>Check-In Complete!</Text>
-                <Text style={styles.message}>Thank you <Text style={styles.visitorName}>{visitor.full_name}</Text> for completing the check-in process. We are excited to have you with us today!</Text>
+                <Text style={styles.message}>Thank you <Text style={styles.visitorName}>{visitor.full_name}</Text> for checking in. We are excited to have you with us today!</Text>
+
+                <View style={styles.receiptBox}>
+                    <Text style={styles.receiptTitle}>Visitor ID</Text>
+                    <Text style={styles.visitorId}>{visitor.id}</Text>
+                    <Text style={styles.reminder}>Please remember your Visitor ID. You will need it for checkout.</Text>
+                </View>
+
                 <View style={styles.notificationBox}>
                     <Text style={styles.notificationTitle}>Notification Sent</Text>
                     <Text style={styles.notificationMessage}>An email has been sent to the relevant department, notifying them of your arrival. Please wait in the lobby, and someone will assist you shortly.</Text>
@@ -43,7 +50,7 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        padding: 20, // Optional: for some padding around the card
+        padding: 20,
     },
     card: {
         backgroundColor: '#fff',
@@ -75,6 +82,32 @@ const styles = StyleSheet.create({
     visitorName: {
         fontWeight: 'bold',
         color: '#007bff',
+    },
+    receiptBox: {
+        marginTop: 15,
+        padding: 15,
+        borderRadius: 10,
+        borderWidth: 2,
+        borderColor: '#5B86E5',
+        backgroundColor: '#f8f9fa',
+        alignItems: 'center',
+        width: '100%',
+    },
+    receiptTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#5B86E5',
+    },
+    visitorId: {
+        fontSize: 28,
+        fontWeight: 'bold',
+        color: '#007bff',
+        marginVertical: 5,
+    },
+    reminder: {
+        fontSize: 14,
+        color: '#6c757d',
+        textAlign: 'center',
     },
     notificationBox: {
         marginTop: 15,

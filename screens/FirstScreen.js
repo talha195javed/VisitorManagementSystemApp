@@ -8,7 +8,7 @@ import {
     StatusBar,
     ImageBackground,
     Image,
-    TouchableWithoutFeedback
+    TouchableWithoutFeedback,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
@@ -17,7 +17,7 @@ import WelcomeBg from '../assets/images/welcome1.jpg';
 import MainBg from '../assets/images/welcome2.webp';
 import ScannerImg from '../assets/images/scanner.png';
 
-const FirstScreen = () => {
+const FirstScreen = ({ setIsLoggedIn }) => {
     const navigation = useNavigation();
     const [showWelcome, setShowWelcome] = useState(true);
     let idleTimer = null;
@@ -81,7 +81,10 @@ const FirstScreen = () => {
                                     <Text style={styles.buttonText}>Check In</Text>
                                 </TouchableOpacity>
 
-                                <TouchableOpacity style={[styles.button, styles.checkOutBtn]}>
+                                <TouchableOpacity
+                                    style={[styles.button, styles.checkOutBtn]}
+                                    onPress={() => navigation.navigate('CheckOut')}
+                                >
                                     <Text style={styles.buttonText}>Check Out</Text>
                                 </TouchableOpacity>
                             </View>
@@ -96,7 +99,6 @@ const FirstScreen = () => {
                                 Simply scan the QR code to log in instantly—no contact, no hassle.
                             </Text>
                         </ImageBackground>
-
                     )}
                 </View>
             </TouchableWithoutFeedback>

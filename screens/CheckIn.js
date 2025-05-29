@@ -7,6 +7,7 @@ import {
 const CheckIn = ({ navigation }) => {
     const [email, setEmail] = useState('');
     const [loading, setLoading] = useState(false);
+    const [selectedOption, setSelectedOption] = useState(null); // null, 'new', or 'pre'
 
     const checkPreRegistered = async () => {
         if (!email) {
@@ -43,29 +44,63 @@ const CheckIn = ({ navigation }) => {
         }
     };
 
+    const handleNewVisitor = async () => {
+        try {
+            const fieldsResponse = await fetch('http://10.0.2.2:8000/api/visitor/visibleFields/');
+            const fieldsData = await fieldsResponse.json();
+            navigation.navigate('VisitorDetails', { visitor: null, visibleFields: fieldsData.fields });
+        } catch (error) {
+            console.log(error);
+            Alert.alert("Error", "An error occurred. Please try again.");
+        }
+    };
+
     return (
         <ImageBackground source={require('../assets/images/checkin6.jpg')} style={styles.background}>
             <View style={styles.overlay} />
             <View style={styles.card}>
                 <Text style={styles.heading}>Visitor Check-In</Text>
-                <Text style={styles.instruction}>
-                    Please enter your email and check if you're pre-registered
-                </Text>
-                <TextInput
-                    style={styles.input}
-                    placeholder="Enter your Email"
-                    value={email}
-                    onChangeText={setEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                />
-                <TouchableOpacity
-                    style={styles.button}
-                    onPress={checkPreRegistered}
-                    disabled={loading}
-                >
-                    {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Check</Text>}
-                </TouchableOpacity>
+
+                {!selectedOption && (
+                    <>
+                        <TouchableOpacity
+                            style={styles.button}
+                            onPress={handleNewVisitor}
+                        >
+                            <Text style={styles.buttonText}>New Visitor</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.button, { marginTop: 15 }]}
+                            onPress={() => setSelectedOption('pre')}
+                        >
+                            <Text style={styles.buttonText}>Pre-Registered Visitor</Text>
+                        </TouchableOpacity>
+                    </>
+                )}
+
+                {selectedOption === 'pre' && (
+                    <>
+                        <Text style={styles.instruction}>
+                            Please enter your email and check if you're pre-registered
+                        </Text>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="Enter your Email"
+                            value={email}
+                            onChangeText={setEmail}
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                        />
+                        <TouchableOpacity
+                            style={styles.button}
+                            onPress={checkPreRegistered}
+                            disabled={loading}
+                        >
+                            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Check</Text>}
+                        </TouchableOpacity>
+                    </>
+                )}
             </View>
         </ImageBackground>
     );
@@ -81,11 +116,11 @@ const styles = StyleSheet.create({
     },
     overlay: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)', // Dark overlay for contrast
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
     },
     card: {
         width: '90%',
-        backgroundColor: 'rgba(255, 255, 255, 0.9)', // Semi-transparent white
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
         padding: 20,
         borderRadius: 15,
         shadowColor: '#000',
@@ -99,7 +134,7 @@ const styles = StyleSheet.create({
         fontSize: 22,
         fontWeight: 'bold',
         color: '#333',
-        marginBottom: 10,
+        marginBottom: 20,
     },
     instruction: {
         fontSize: 16,
@@ -127,7 +162,7 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 16,
         fontWeight: 'bold',
-    }
+    },
 });
 
 export default CheckIn;

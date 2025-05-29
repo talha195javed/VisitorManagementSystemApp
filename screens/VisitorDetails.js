@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-    View, Text, TextInput, Alert, ImageBackground, TouchableOpacity, StyleSheet, ScrollView
+    View, Text, TextInput, Alert, ImageBackground, TouchableOpacity, StyleSheet
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 
@@ -16,8 +17,23 @@ const VisitorDetails = ({ route, navigation }) => {
         identification_number: '',
     });
 
+    const [clientId, setClientId] = useState('');
+
+    useEffect(() => {
+        const fetchClientId = async () => {
+            try {
+                const id = await AsyncStorage.getItem('ClientId');
+                setClientId(id || '');
+                console.log("Fetched ClientId from storage:", id);
+            } catch (error) {
+                console.error("Error reading ClientId from AsyncStorage:", error);
+            }
+        };
+        fetchClientId();
+    }, []);
+
     const handleProceed = async () => {
-        const { full_name, company, phone, id_type, identification_number, email } = visitorData;
+        const { full_name } = visitorData;
 
         if (!full_name) {
             Alert.alert("Error", "Please fill in all required fields.");
@@ -25,32 +41,46 @@ const VisitorDetails = ({ route, navigation }) => {
         }
 
         try {
+            const payload = {
+                ...visitorData,
+                client_id: clientId,
+            };
+
+            console.log("Payload being sent:", payload);
+
             const response = await fetch('http://10.0.2.2:8000/api/visitor/store-checkin', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(visitorData),
+                body: JSON.stringify(payload),
             });
 
             const data = await response.json();
 
-            if (response.ok && data.visitor && data.visitor.id) {
+            if (response.ok && data.visitor?.id) {
                 const visitorId = data.visitor.id;
-                const visibleScreens = data.visibleFields || [];
+                const nextScreen = data.next_screen;
 
-                if (visibleScreens.includes('select_role')) {
-                    navigation.navigate('SelectRole', { visitorId });
-                } else if (visibleScreens.includes('select_purpose')) {
-                    navigation.navigate('SelectPurpose', { visitorId });
-                } else if (visibleScreens.includes('capture_image')) {
-                    navigation.navigate('CaptureImage', { visitorId });
-                } else if (visibleScreens.includes('capture_id')) {
-                    navigation.navigate('CaptureId', { visitorId });
-                } else if (visibleScreens.includes('emergency_contact')) {
-                    navigation.navigate('EmergencyContact', { visitorId });
-                } else {
-                    navigation.navigate('Agreement', { visitorId });
+                console.log("Next Screen:", nextScreen);
+
+                switch (nextScreen) {
+                    case 'select_role':
+                        navigation.navigate('SelectRole', { visitorId });
+                        break;
+                    case 'select_purpose':
+                        navigation.navigate('SelectPurpose', { visitorId });
+                        break;
+                    case 'capture_image':
+                        navigation.navigate('CaptureImage', { visitorId });
+                        break;
+                    case 'capture_id':
+                        navigation.navigate('CaptureId', { visitorId });
+                        break;
+                    case 'emergency_contact':
+                        navigation.navigate('EmergencyContact', { visitorId });
+                        break;
+                    default:
+                        navigation.navigate('Agreement', { visitorId });
                 }
-
             } else {
                 Alert.alert("Error", data.message || "Something went wrong!");
             }
@@ -154,23 +184,6 @@ const styles = StyleSheet.create({
         width: '90%',
         maxWidth: 400,
     },
-    overlay: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    },
-    card: {
-        width: 300, // Set width of card to match SelectRole screen
-        backgroundColor: 'rgba(255, 255, 255, 0.9)',
-        padding: 20,
-        borderRadius: 15,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 5,
-        elevation: 8,
-        alignItems: 'center',
-        marginTop: 100,
-    },
     title: {
         fontSize: 22,
         fontWeight: 'bold',
@@ -179,8 +192,8 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     input: {
-        width: '100%', // Set to 100% to take up full width of the container
-        height: 50,    // Ensure uniform height
+        width: '100%',
+        height: 50,
         paddingHorizontal: 15,
         borderWidth: 1,
         borderColor: '#ccc',
@@ -191,8 +204,8 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     pickerContainer: {
-        width: '100%', // Set to 100% for the picker container
-        height: 50,    // Set uniform height for the picker
+        width: '100%',
+        height: 50,
         borderWidth: 1,
         borderColor: '#ccc',
         borderRadius: 10,
@@ -205,8 +218,8 @@ const styles = StyleSheet.create({
         height: 50,
     },
     button: {
-        width: '100%', // Set to 100% to match the width of input fields
-        paddingVertical: 12,  // Adjusted height for better button size
+        width: '100%',
+        paddingVertical: 12,
         borderRadius: 10,
         backgroundColor: '#007bff',
         alignItems: 'center',
