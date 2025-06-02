@@ -46,7 +46,8 @@ const CheckIn = ({ navigation }) => {
 
     const handleNewVisitor = async () => {
         try {
-            const fieldsResponse = await fetch('http://10.0.2.2:8000/api/visitor/visibleFields/');
+            console.log(123);
+            const fieldsResponse = await fetch('https://web.smartvisitor.io/public/api/visitor/visibleFields');
             const fieldsData = await fieldsResponse.json();
             navigation.navigate('VisitorDetails', { visitor: null, visibleFields: fieldsData.fields });
         } catch (error) {
