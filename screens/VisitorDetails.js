@@ -1,16 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-    View, Text, TextInput, Alert, ImageBackground, TouchableOpacity, StyleSheet, Modal, Image
+    View,
+    Text,
+    TextInput,
+    Alert,
+    ImageBackground,
+    TouchableOpacity,
+    StyleSheet,
+    Modal,
+    Image,
+    ActivityIndicator,
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
-
 import { Camera, useCameraDevices } from 'react-native-vision-camera';
 import TextRecognition from '@react-native-ml-kit/text-recognition';
 
 const VisitorDetails = ({ route, navigation }) => {
-    const { visibleFields } = route.params || {};
+    const { visibleFields, visitorId: routeVisitorId } = route.params || {};
 
+    const [visitorId, setVisitorId] = useState(routeVisitorId || null);
     const [visitorData, setVisitorData] = useState({
         full_name: '',
         company: '',
@@ -18,14 +26,20 @@ const VisitorDetails = ({ route, navigation }) => {
         phone: '',
         id_type: '',
         identification_number: '',
+        date_of_birth: '',
+        gender: '',
     });
 
     const [clientId, setClientId] = useState('');
-
-    // New states for camera
     const [cameraOpen, setCameraOpen] = useState(false);
     const [capturedImageUri, setCapturedImageUri] = useState(null);
     const [extractedText, setExtractedText] = useState('');
+    const [validationStatus, setValidationStatus] = useState(null); // 'good' or 'bad'
+
+    // Upload states
+    const [uploading, setUploading] = useState(false);
+    const [uploadedImageUrl, setUploadedImageUrl] = useState(null);
+
     const devices = useCameraDevices();
     const device = Array.isArray(devices)
         ? devices.find(d => d.position === 'back')
@@ -38,23 +52,18 @@ const VisitorDetails = ({ route, navigation }) => {
             try {
                 const id = await AsyncStorage.getItem('ClientId');
                 setClientId(id || '');
-                console.log("Fetched ClientId from storage:", id);
             } catch (error) {
-                console.error("Error reading ClientId from AsyncStorage:", error);
+                console.error('Error reading ClientId from AsyncStorage:', error);
             }
         };
         fetchClientId();
     }, []);
 
-    // Function to request camera permissions on mount (optional)
     useEffect(() => {
         (async () => {
             const status = await Camera.getCameraPermissionStatus();
-            console.log('Camera permission status:', status);
-
             if (status !== 'authorized' && status !== 'granted') {
                 const newStatus = await Camera.requestCameraPermission();
-                console.log('Camera request permission result:', newStatus);
                 if (newStatus !== 'authorized' && newStatus !== 'granted') {
                     Alert.alert('Camera permission is required');
                 }
@@ -62,17 +71,51 @@ const VisitorDetails = ({ route, navigation }) => {
         })();
     }, []);
 
-    const handleCapture = async (camera) => {
-        try {
-            const photo = await camera.takePhoto({
-                qualityPrioritization: 'quality',
-                flash: 'off',
-            });
-            setCapturedImageUri('file://' + photo.path);
-            setCameraOpen(false);
+    const uploadCapturedImage = async (uri) => {
+        if (!visitorId) {
+            console.warn('Visitor ID not set, cannot upload');
+            return;
+        }
 
-            const result = await TextRecognition.recognize('file://' + photo.path);
-            console.log('OCR result:', result);
+        setUploading(true);
+
+        const formData = new FormData();
+        formData.append('photo', {
+            uri,
+            type: 'image/jpeg',
+            name: `visitor_${visitorId}_${Date.now()}.jpg`,
+        });
+        formData.append('visitor_id', visitorId);
+
+        try {
+            const response = await fetch('http://10.0.2.2:8000/api/visitor/storeAppIdCapturedImage', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                    Accept: 'application/json',
+                },
+                body: formData,
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                setUploadedImageUrl(data.photo_url);
+                Alert.alert('Success', 'ID card image uploaded successfully!');
+            } else {
+                Alert.alert('Upload failed', data.message || 'Failed to upload image.');
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+            Alert.alert('Upload error', 'An error occurred while uploading the image.');
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const processCapturedImage = async (imageUri) => {
+        try {
+            const result = await TextRecognition.recognize(imageUri);
 
             let fullText = '';
             if (result && typeof result === 'object') {
@@ -83,20 +126,81 @@ const VisitorDetails = ({ route, navigation }) => {
                 }
             } else if (typeof result === 'string') {
                 fullText = result;
-            } else {
-                console.warn('Unexpected OCR result format:', result);
             }
 
-            const nameLine = fullText
-                .split('\n')
-                .find(line => line.trim().toLowerCase().startsWith('name:'));
-
-            let extractedName = '';
-            if (nameLine) {
-                extractedName = nameLine.substring(nameLine.indexOf(':') + 1).trim();
-            }
             setExtractedText(fullText);
-            setVisitorData({ ...visitorData, full_name: extractedName });
+
+            // Parse fields
+            let extractedName = '';
+            let extractedFirstName = '';
+            let extractedLastName = '';
+            let extractedDOB = '';
+            let extractedGender = '';
+            let extractedID = '';
+
+            const lines = fullText.split('\n');
+
+            lines.forEach(line => {
+                const lower = line.toLowerCase();
+
+                if (lower.includes('name:')) {
+                    const value = line.split(':')[1]?.trim() || '';
+                    extractedName = value;
+                } else if (lower.includes('first name:')) {
+                    extractedFirstName = line.split(':')[1]?.trim() || '';
+                } else if (lower.includes('surname:') || lower.includes('last name:')) {
+                    extractedLastName = line.split(':')[1]?.trim() || '';
+                } else if (lower.includes('dob:') || lower.includes('date of birth:')) {
+                    extractedDOB = line.split(':')[1]?.trim() || '';
+                } else if (lower.includes('gender:')) {
+                    extractedGender = line.split(':')[1]?.trim() || '';
+                } else if ((lower.includes('id') || lower.includes('identification')) && lower.includes('no')) {
+                    extractedID = line.split(':')[1]?.trim() || '';
+                }
+            });
+
+            // Compose full name if separate first and last names found and no full name detected
+            if (!extractedName && (extractedFirstName || extractedLastName)) {
+                extractedName = (extractedFirstName + ' ' + extractedLastName).trim();
+            }
+
+            setVisitorData(prev => ({
+                ...prev,
+                full_name: extractedName,
+                identification_number: extractedID,
+                date_of_birth: extractedDOB,
+                gender: extractedGender,
+            }));
+
+            if (extractedName) {
+                setValidationStatus('good');
+                Alert.alert('Success', 'ID card captured and parsed.');
+            } else {
+                setValidationStatus('bad');
+                Alert.alert(
+                    'Warning',
+                    'Could not reliably parse the ID card info. Please check manually.'
+                );
+            }
+        } catch (err) {
+            Alert.alert('Error processing image');
+        }
+    };
+
+    const handleCapture = async (camera) => {
+        try {
+            const photo = await camera.takePhoto({
+                qualityPrioritization: 'quality',
+                flash: 'off',
+            });
+            const uri = 'file://' + photo.path;
+            setCapturedImageUri(uri);
+            setCameraOpen(false);
+
+            await processCapturedImage(uri);
+
+            // Upload image to backend
+            await uploadCapturedImage(uri);
         } catch (err) {
             console.error('Capture error:', err);
             Alert.alert('Error capturing image');
@@ -104,10 +208,8 @@ const VisitorDetails = ({ route, navigation }) => {
     };
 
     const handleProceed = async () => {
-        const { full_name } = visitorData;
-
-        if (!full_name) {
-            Alert.alert("Error", "Please fill in all required fields.");
+        if (!visitorData.full_name) {
+            Alert.alert('Error', 'Please fill in all required fields.');
             return;
         }
 
@@ -116,8 +218,6 @@ const VisitorDetails = ({ route, navigation }) => {
                 ...visitorData,
                 client_id: clientId,
             };
-
-            console.log("Payload being sent:", payload);
 
             const response = await fetch('http://10.0.2.2:8000/api/visitor/store-checkin', {
                 method: 'POST',
@@ -128,36 +228,34 @@ const VisitorDetails = ({ route, navigation }) => {
             const data = await response.json();
 
             if (response.ok && data.visitor?.id) {
-                const visitorId = data.visitor.id;
+                const visitorIdReturned = data.visitor.id;
+                if (!visitorId) setVisitorId(visitorIdReturned); // save visitorId for uploads
                 const nextScreen = data.next_screen;
-
-                console.log("Next Screen:", nextScreen);
 
                 switch (nextScreen) {
                     case 'select_role':
-                        navigation.navigate('SelectRole', { visitorId });
+                        navigation.navigate('SelectRole', { visitorId: visitorIdReturned });
                         break;
                     case 'select_purpose':
-                        navigation.navigate('SelectPurpose', { visitorId });
+                        navigation.navigate('SelectPurpose', { visitorId: visitorIdReturned });
                         break;
                     case 'capture_image':
-                        navigation.navigate('CaptureImage', { visitorId });
+                        navigation.navigate('CaptureImage', { visitorId: visitorIdReturned });
                         break;
                     case 'capture_id':
-                        navigation.navigate('CaptureId', { visitorId });
+                        navigation.navigate('CaptureId', { visitorId: visitorIdReturned });
                         break;
                     case 'emergency_contact':
-                        navigation.navigate('EmergencyContact', { visitorId });
+                        navigation.navigate('EmergencyContact', { visitorId: visitorIdReturned });
                         break;
                     default:
-                        navigation.navigate('Agreement', { visitorId });
+                        navigation.navigate('Agreement', { visitorId: visitorIdReturned });
                 }
             } else {
-                Alert.alert("Error", data.message || "Something went wrong!");
+                Alert.alert('Error', data.message || 'Something went wrong!');
             }
         } catch (error) {
-            console.error("API Error:", error);
-            Alert.alert("Error", "Failed to connect to the server. Check your internet connection.");
+            Alert.alert('Error', 'Failed to connect to the server. Check your internet connection.');
         }
     };
 
@@ -168,34 +266,57 @@ const VisitorDetails = ({ route, navigation }) => {
 
                 {visibleFields?.includes('full_name') && (
                     <>
-                        <TouchableOpacity style={styles.cameraButton} onPress={() => setCameraOpen(true)}>
+                        <TouchableOpacity
+                            style={styles.cameraButton}
+                            onPress={() => {
+                                setValidationStatus(null);
+                                setCameraOpen(true);
+                            }}
+                        >
                             <Text style={styles.cameraButtonText}>Scan Id</Text>
                         </TouchableOpacity>
 
-                        {/* Show preview if image captured */}
-                        {capturedImageUri && (
-                            <Image source={{ uri: capturedImageUri }} style={styles.previewImage} />
+                        {capturedImageUri && <Image source={{ uri: capturedImageUri }} style={styles.previewImage} />}
+
+                        {uploading && <Text style={{ color: 'orange', marginBottom: 10 }}>Uploading image...</Text>}
+
+                        {uploadedImageUrl && (
+                            <>
+                                <Text style={{ marginBottom: 5 }}>Uploaded Image Preview:</Text>
+                                <Image source={{ uri: uploadedImageUrl }} style={{ width: 150, height: 150, borderRadius: 10, marginBottom: 10 }} />
+                            </>
                         )}
 
-                        {/* Show extracted text input */}
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Extracted Text"
-                            value={extractedText}
-                            onChangeText={(text) => {
-                                setExtractedText(text);
-                                setVisitorData({ ...visitorData, full_name: text });
-                            }}
-                        />
+                        {validationStatus === 'good' && (
+                            <Text style={[styles.feedbackText, { color: 'green' }]}>ID looks good!</Text>
+                        )}
+                        {validationStatus === 'bad' && (
+                            <Text style={[styles.feedbackText, { color: 'red' }]}>Please recapture the ID clearly.</Text>
+                        )}
 
-                        {/* Original full_name input */}
                         <TextInput
                             style={styles.input}
                             placeholder="Full Name"
-                            autoCorrect={false}
-                            autoCapitalize="none"
                             value={visitorData.full_name}
-                            onChangeText={(text) => setVisitorData({ ...visitorData, full_name: text })}
+                            onChangeText={text => setVisitorData(prev => ({ ...prev, full_name: text }))}
+                        />
+                        <TextInput
+                            style={styles.input}
+                            placeholder="Date of Birth"
+                            value={visitorData.date_of_birth}
+                            onChangeText={text => setVisitorData(prev => ({ ...prev, date_of_birth: text }))}
+                        />
+                        <TextInput
+                            style={styles.input}
+                            placeholder="Gender"
+                            value={visitorData.gender}
+                            onChangeText={text => setVisitorData(prev => ({ ...prev, gender: text }))}
+                        />
+                        <TextInput
+                            style={styles.input}
+                            placeholder="ID Number"
+                            value={visitorData.identification_number}
+                            onChangeText={text => setVisitorData(prev => ({ ...prev, identification_number: text }))}
                         />
                     </>
                 )}
@@ -204,23 +325,18 @@ const VisitorDetails = ({ route, navigation }) => {
                     <TextInput
                         style={styles.input}
                         placeholder="Company"
-                        autoCorrect={false}
-                        autoCapitalize="none"
                         value={visitorData.company}
-                        onChangeText={(text) => setVisitorData({ ...visitorData, company: text })}
+                        onChangeText={text => setVisitorData(prev => ({ ...prev, company: text }))}
                     />
                 )}
-
-                {/* rest of fields... */}
 
                 <TouchableOpacity style={styles.button} onPress={handleProceed}>
                     <Text style={styles.buttonText}>Proceed</Text>
                 </TouchableOpacity>
 
-                {/* Camera Modal */}
                 <Modal visible={cameraOpen} animationType="slide" transparent={false}>
                     {device ? (
-                        <>
+                        <View style={{ flex: 1 }}>
                             <Camera
                                 style={StyleSheet.absoluteFill}
                                 device={device}
@@ -228,7 +344,9 @@ const VisitorDetails = ({ route, navigation }) => {
                                 photo={true}
                                 ref={cameraRef}
                             />
-                            {/* Overlay buttons */}
+                            <View style={styles.overlay}>
+                                <View style={styles.frame} />
+                            </View>
                             <View style={styles.cameraControls}>
                                 <TouchableOpacity
                                     style={styles.captureButton}
@@ -240,7 +358,6 @@ const VisitorDetails = ({ route, navigation }) => {
                                 >
                                     <Text style={styles.captureButtonText}>Capture</Text>
                                 </TouchableOpacity>
-
                                 <TouchableOpacity
                                     style={styles.cancelButton}
                                     onPress={() => setCameraOpen(false)}
@@ -248,7 +365,7 @@ const VisitorDetails = ({ route, navigation }) => {
                                     <Text style={styles.cancelButtonText}>Cancel</Text>
                                 </TouchableOpacity>
                             </View>
-                        </>
+                        </View>
                     ) : (
                         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                             <Text>Loading Camera...</Text>
@@ -294,20 +411,6 @@ const styles = StyleSheet.create({
         fontSize: 16,
         textAlign: 'center',
     },
-    pickerContainer: {
-        width: '100%',
-        height: 50,
-        borderWidth: 1,
-        borderColor: '#ccc',
-        borderRadius: 10,
-        backgroundColor: '#fff',
-        justifyContent: 'center',
-        marginBottom: 15,
-    },
-    picker: {
-        width: '100%',
-        height: 50,
-    },
     button: {
         width: '100%',
         paddingVertical: 12,
@@ -338,6 +441,12 @@ const styles = StyleSheet.create({
         height: 200,
         marginBottom: 10,
         borderRadius: 10,
+    },
+    feedbackText: {
+        marginBottom: 10,
+        fontSize: 16,
+        fontWeight: '600',
+        textAlign: 'center',
     },
     cameraControls: {
         position: 'absolute',
@@ -373,6 +482,20 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: 'bold',
         fontSize: 16,
+    },
+    overlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    frame: {
+        width: 320,
+        height: 200,
+        borderWidth: 3,
+        borderColor: '#00FF00',
+        borderRadius: 10,
+        backgroundColor: 'transparent',
     },
 });
 
